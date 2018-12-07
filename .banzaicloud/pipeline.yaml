@@ -1,0 +1,94 @@
+pipeline:
+  create_cluster:
+    image: banzaicloud/ci-pipeline-client:0.8
+    cluster:
+      name: tarokkk6ny8
+      location: ""
+      cloud: google
+      secretId: ""
+      secretName: ""
+      profileName: ""
+      postHooks: {}
+      properties: null
+    action: EnsureCluster
+  test:
+    image: maven:3.5-jdk-11-slim
+    commands:
+    - mvn clean test
+  build_image:
+    dockerfile: Dockerfile
+    image: banzaicloud/kaniko-plugin
+    repo: '{{ .CICD_REPO }}'
+    secretFrom:
+      DOCKER_PASSWORD:
+        keyRef: password
+        name: docker-hub
+      DOCKER_USERNAME:
+        keyRef: username
+        name: docker-hub
+    tags: '{{ .CICD_COMMIT_BRANCH }}'
+  package_application:
+    image: lachlanevenson/k8s-helm:latest
+    commands:
+    - helm init -c
+    - helm package ./.banzaicloud/charts/spotguide-spring-boot
+  install_mysql_user_secret:
+    action: InstallSecret
+    clusterSecret:
+      merge: true
+      name: '{{ .CICD_REPO_NAME }}-mysql'
+      namespace: default
+      sourceSecretName: spotguide-spring-boot-mysql
+      spec:
+      - name: mysql-username
+        source: username
+      - name: mysql-password
+        source: password
+    image: banzaicloud/ci-pipeline-client:0.8
+    when:
+      branch:
+        include:
+        - master
+  install_mysql_root_secret:
+    action: InstallSecret
+    clusterSecret:
+      merge: true
+      name: '{{ .CICD_REPO_NAME }}-mysql'
+      namespace: default
+      sourceSecretName: spotguide-spring-boot-mysql-root
+      spec:
+      - name: mysql-root-password
+        source: password
+    image: banzaicloud/ci-pipeline-client:0.8
+    when:
+      branch:
+        include:
+        - master
+  deploy_application:
+    action: EnsureDeployment
+    deployment:
+      name: ./spotguide-spring-boot-1.0.0.tgz
+      releaseName: '{{ .CICD_REPO_NAME }}'
+      reuseValues: true
+      values:
+        image:
+          pullPolicy: Always
+          repository: '{{ .CICD_REPO }}'
+          tag: '{{ .CICD_COMMIT_BRANCH }}'
+        ingress:
+          annotations:
+            kubernetes.io/ingress.class: traefik
+            traefik.ingress.kubernetes.io/redirect-permanent: "true"
+            traefik.ingress.kubernetes.io/redirect-regex: ^http://(.*)
+            traefik.ingress.kubernetes.io/redirect-replacement: https://$1
+          enabled: true
+          hosts:
+          - '{{.CICD_REPO_NAME}}.{{.CLUSTER_NAME}}.{{.ORG_NAME}}.{{.DOMAIN_NAME}}'
+        mysql:
+          existingSecret: '{{ .CICD_REPO_NAME }}-mysql'
+          mysqlDatabase: spring-boot
+    image: banzaicloud/ci-pipeline-client:0.8
+    when:
+      branch:
+        include:
+        - master

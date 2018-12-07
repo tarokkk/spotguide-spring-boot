@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "spotguide-spring-boot.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "spotguide-spring-boot.name" . }}
+    helm.sh/chart: {{ include "spotguide-spring-boot.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "spotguide-spring-boot.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "spotguide-spring-boot.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      # spring-cloud-kubernetes-core needs to query the self Pod object from the API, let's allow it
+      serviceAccountName: {{ include "spotguide-spring-boot.fullname" . }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            initialDelaySeconds: 30 # When using resource limits the JVM needs some time to start-up
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+          lifecycle:
+            preStop:
+              # Unfortunately we can't use httpGet here since Spring Actuator requires HTTP POST method
+              exec:
+                command: ["curl","-X","POST","localhost:8080/actuator/shutdown"]
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:mysql://{{ include "spotguide-spring-boot.fullname" . }}-mysql:3306/{{ .Values.mysql.mysqlDatabase }}?useSSL=false
+            - name: SPRING_DATASOURCE_USERNAME
+              value: {{ .Values.mysql.mysqlUser }}
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if .Values.mysql.existingSecret }}{{ .Values.mysql.existingSecret }}{{- else }}{{ include "spotguide-spring-boot.fullname" . }}-mysql{{- end }}
+                  key: mysql-password
+            {{ range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{ end }}
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+    {{- with .Values.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.affinity }}
+      affinity:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+    {{- end }}
