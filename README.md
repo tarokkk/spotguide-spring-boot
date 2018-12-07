@@ -1,7 +1,7 @@
 # Spotguide for Sprint Boot with MySQL database
 
 This repository was created by Banzai Cloud Pipeline. Spotguides provide automated configuration, logging, monitoring, security, and scaling for your application stacks.
-
+YUGHUUU
 <!-- TOC -->
 
 - [Spotguide for Sprint Boot with MySQL database](#spotguide-for-spring-boot-with-mysql-database)
